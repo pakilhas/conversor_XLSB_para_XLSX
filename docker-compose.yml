@@ -1,0 +1,31 @@
+version: '3.8'
+
+services:
+  xlsb-converter:
+    build: .
+    container_name: conversor-xlsb-web
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./uploads:/app/uploads
+      - ./logs:/app/logs
+    environment:
+      - FLASK_ENV=production
+      - PYTHONUNBUFFERED=1
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9090"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      - xlsb-network
+
+networks:
+  xlsb-network:
+    driver: bridge
+
+volumes:
+  uploads:
+  logs:

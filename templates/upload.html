@@ -1,0 +1,324 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Conversor XLSB para XLSX</title>
+    <style>
+        :root {
+            --primary-dark: #0a0a0a;
+            --primary-blue: #1e40af;
+            --secondary-blue: #3b82f6;
+            --accent-blue: #60a5fa;
+            --light-bg: #f8fafc;
+            --text-light: #f1f5f9;
+            --text-dark: #1e293b;
+            --border-light: #e2e8f0;
+        }
+        
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            max-width: 900px;
+            margin: 0 auto;
+            padding: 20px;
+            background: linear-gradient(135deg, var(--primary-dark) 0%, #1e3a8a 100%);
+            min-height: 100vh;
+            color: var(--text-light);
+        }
+        
+        .container {
+            background: rgba(255, 255, 255, 0.05);
+            backdrop-filter: blur(10px);
+            padding: 30px;
+            border-radius: 16px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        
+        header {
+            text-align: center;
+            margin-bottom: 30px;
+            padding-bottom: 20px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        
+        h1 {
+            color: var(--text-light);
+            font-size: 2.5rem;
+            margin-bottom: 10px;
+            text-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+        }
+        
+        .subtitle {
+            color: var(--accent-blue);
+            font-size: 1.1rem;
+            margin-bottom: 20px;
+        }
+        
+        .upload-area {
+            border: 2px dashed var(--secondary-blue);
+            border-radius: 12px;
+            padding: 50px 30px;
+            text-align: center;
+            margin-bottom: 25px;
+            transition: all 0.3s ease;
+            cursor: pointer;
+            background: rgba(30, 64, 175, 0.1);
+        }
+        
+        .upload-area:hover {
+            border-color: var(--accent-blue);
+            background: rgba(30, 64, 175, 0.2);
+            transform: translateY(-2px);
+        }
+        
+        .upload-area.dragover {
+            border-color: var(--accent-blue);
+            background: rgba(30, 64, 175, 0.25);
+            box-shadow: 0 0 20px rgba(59, 130, 246, 0.4);
+        }
+        
+        .upload-icon {
+            font-size: 3rem;
+            margin-bottom: 15px;
+            display: block;
+        }
+        
+        .btn {
+            background: linear-gradient(135deg, var(--primary-blue), var(--secondary-blue));
+            color: white;
+            padding: 14px 28px;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 16px;
+            font-weight: 600;
+            transition: all 0.3s ease;
+            box-shadow: 0 4px 12px rgba(30, 64, 175, 0.3);
+        }
+        
+        .btn:hover:not(:disabled) {
+            background: linear-gradient(135deg, var(--secondary-blue), var(--accent-blue));
+            transform: translateY(-2px);
+            box-shadow: 0 6px 16px rgba(30, 64, 175, 0.4);
+        }
+        
+        .btn:disabled {
+            background: #64748b;
+            cursor: not-allowed;
+            transform: none;
+            box-shadow: none;
+        }
+        
+        .progress-container {
+            margin: 35px 0;
+            display: none;
+            background: rgba(15, 23, 42, 0.7);
+            padding: 25px;
+            border-radius: 12px;
+            border: 1px solid rgba(59, 130, 246, 0.2);
+        }
+        
+        .progress-bar {
+            width: 100%;
+            height: 20px;
+            background-color: rgba(30, 41, 59, 0.8);
+            border-radius: 10px;
+            overflow: hidden;
+            margin-bottom: 15px;
+            box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.2);
+        }
+        
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, var(--primary-blue), var(--accent-blue));
+            width: 0%;
+            transition: width 0.5s ease;
+            border-radius: 10px;
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .progress-fill::after {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            bottom: 0;
+            right: 0;
+            background-image: linear-gradient(
+                -45deg,
+                rgba(255, 255, 255, 0.2) 25%,
+                transparent 25%,
+                transparent 50%,
+                rgba(255, 255, 255, 0.2) 50%,
+                rgba(255, 255, 255, 0.2) 75%,
+                transparent 75%,
+                transparent
+            );
+            background-size: 50px 50px;
+            animation: move 2s linear infinite;
+            border-radius: 10px;
+        }
+        
+        @keyframes move {
+            0% {
+                background-position: 0 0;
+            }
+            100% {
+                background-position: 50px 50px;
+            }
+        }
+        
+        .progress-info {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 10px;
+            font-weight: 600;
+        }
+        
+        .progress-message {
+            color: var(--accent-blue);
+            font-style: italic;
+            margin-bottom: 15px;
+            font-size: 1.05rem;
+        }
+        
+        .time-info {
+            background: rgba(30, 64, 175, 0.2);
+            padding: 12px 15px;
+            border-radius: 8px;
+            margin: 15px 0;
+            display: none;
+            border-left: 4px solid var(--accent-blue);
+        }
+        
+        .download-section {
+            text-align: center;
+            margin: 25px 0;
+            display: none;
+            background: rgba(30, 64, 175, 0.1);
+            padding: 30px;
+            border-radius: 12px;
+            border: 1px solid rgba(59, 130, 246, 0.3);
+        }
+        
+        .download-icon {
+            font-size: 3.5rem;
+            margin-bottom: 15px;
+            display: block;
+        }
+        
+        .error-message {
+            background: rgba(220, 38, 38, 0.2);
+            color: #fecaca;
+            padding: 15px;
+            border-radius: 8px;
+            margin: 15px 0;
+            display: none;
+            border-left: 4px solid #ef4444;
+        }
+        
+        .file-info {
+            margin: 15px 0;
+            color: var(--accent-blue);
+            font-size: 1.05rem;
+            padding: 12px 15px;
+            background: rgba(30, 64, 175, 0.1);
+            border-radius: 8px;
+            display: none;
+        }
+        
+        footer {
+            margin-top: 40px;
+            text-align: center;
+            padding-top: 20px;
+            border-top: 1px solid rgba(255, 255, 255, 0.1);
+            display: flex;
+            justify-content: space-between;
+            font-size: 0.9rem;
+            color: var(--accent-blue);
+        }
+        
+        .developer-credit {
+            font-style: italic;
+        }
+        
+        @media (max-width: 768px) {
+            body {
+                padding: 15px;
+            }
+            
+            .container {
+                padding: 20px;
+            }
+            
+            h1 {
+                font-size: 2rem;
+            }
+            
+            footer {
+                flex-direction: column;
+                gap: 10px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🔄 Conversor XLSB para XLSX</h1>
+            <p class="subtitle">Converta seus arquivos Excel Binary (.xlsb) para o formato padrão (.xlsx)</p>
+        </header>
+        
+        <div class="upload-area" id="uploadArea">
+            <span class="upload-icon">📁</span>
+            <p>Arraste seu arquivo .xlsb aqui ou clique para selecionar</p>
+            <input type="file" id="fileInput" accept=".xlsb" style="display: none;">
+            <button class="btn" onclick="document.getElementById('fileInput').click()">
+                Selecionar Arquivo
+            </button>
+        </div>
+        
+        <div class="file-info" id="fileInfo"></div>
+        
+        <div class="error-message" id="errorMessage"></div>
+        
+        <div class="progress-container" id="progressContainer">
+            <div class="progress-info">
+                <span>Progresso da Conversão:</span>
+                <span id="progressPercent">0%</span>
+            </div>
+            <div class="progress-bar">
+                <div class="progress-fill" id="progressFill"></div>
+            </div>
+            <div class="progress-message" id="progressMessage">
+                Aguardando início da conversão...
+            </div>
+            <div class="time-info" id="timeInfo">
+                ⏱️ <strong>Tempo decorrido:</strong> <span id="elapsedTime">0s</span>
+            </div>
+        </div>
+        
+        <div class="download-section" id="downloadSection">
+            <span class="download-icon">✅</span>
+            <h3>Conversão Concluída!</h3>
+            <p>Seu arquivo foi convertido com sucesso e está pronto para download.</p>
+            <a class="btn" id="downloadLink">📥 Baixar Arquivo Convertido</a>
+        </div>
+        
+        <footer>
+            <div class="copyright">© Fred Souza 2025</div>
+            <div class="developer-credit">Desenvolvido por Pablo</div>
+        </footer>
+    </div>
+
+    <script src="{{ url_for('static', filename='progress.js') }}"></script>
+</body>
+</html>
