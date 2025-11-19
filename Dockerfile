@@ -1,28 +1,27 @@
-FROM python:3.9-slim
+FROM python:3.9-slim-bullseye
 
 WORKDIR /app
 
-# Instalar dependências do sistema e curl para healthcheck
+# Instalar apenas dependências essenciais
 RUN apt-get update && apt-get install -y \
-    gcc \
-    g++ \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Copiar requirements primeiro para melhor cache
+# Copiar requirements primeiro para cache
 COPY requirements.txt .
 
 # Instalar dependências Python
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copiar o restante da aplicação
+# Copiar o código da aplicação
 COPY . .
-
-# Criar diretórios necessários
-RUN mkdir -p uploads static templates logs
 
 # Expor a porta
 EXPOSE 9090
 
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
+    CMD curl -f http://localhost:9090/health || exit 1
+
 # Comando para rodar a aplicação
-CMD ["python", "-u", "app.py"]
+CMD ["python", "app.py"]

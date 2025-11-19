@@ -5,16 +5,17 @@ services:
     build: .
     container_name: conversor-xlsb-web
     ports:
-      - "9090:9090"
+      - "5000:9090"
     volumes:
       - ./uploads:/app/uploads
       - ./logs:/app/logs
+      - ./templates:/app/templates
     environment:
       - FLASK_ENV=production
       - PYTHONUNBUFFERED=1
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:9090"]
+      test: ["CMD", "curl", "-f", "http://localhost:9090/health"]
       interval: 30s
       timeout: 10s
       retries: 3
