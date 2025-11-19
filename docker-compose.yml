@@ -5,11 +5,10 @@ services:
     build: .
     container_name: conversor-xlsb-web
     ports:
-      - "5000:9090"
+      - "127.0.0.1:9090:9090"  # Só acessível localmente via Nginx
     volumes:
-      - ./uploads:/app/uploads
-      - ./logs:/app/logs
-      - ./templates:/app/templates
+      - ./uploads:/tmp/uploads
+      - ./logs:/tmp/logs
     environment:
       - FLASK_ENV=production
       - PYTHONUNBUFFERED=1
@@ -20,13 +19,7 @@ services:
       timeout: 10s
       retries: 3
       start_period: 40s
-    networks:
-      - xlsb-network
 
 networks:
-  xlsb-network:
-    driver: bridge
-
-volumes:
-  uploads:
-  logs:
+  default:
+    name: xlsb-network

@@ -4,11 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Conversor XLSB para XLSX</title>
-<<<<<<< HEAD
-    <link rel="icon" type="image/x-icon" href="/favicon.ico">
-=======
-    <link rel="icon" href="{{ url_for('static', filename='logo.svg') }}" type="image/svg+xml">
->>>>>>> 03e9dea3c11d78e0a1d951842a64961de6c1da23
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🔧</text></svg>">
     <style>
         :root {
             --primary-color: #1e3a8a;
@@ -69,7 +65,6 @@
         .logo-icon {
             width: 80px;
             height: 32px;
-            /* background: linear-gradient(135deg, var(--primary-light) 0%, var(--primary-color) 100%); */
             border-radius: 6px;
             display: flex;
             align-items: center;
@@ -296,10 +291,9 @@
     <header class="header">
         <nav class="nav-container">
             <a href="https://fredsouza.com" class="logo" target="_blank">
-                <img src="../image/Logo Fred Souza Branco H.png" alt="Logo Fred Souza" class="logo-icon" />
+                <div class="logo-icon">🔧</div>
                 Conversor Online
             </a>
-
         </nav>
     </header>
 
@@ -355,7 +349,6 @@
     </footer>
 
     <script>
-        // O JavaScript permanece exatamente o mesmo da versão anterior
         const uploadForm = document.getElementById('uploadForm');
         const fileInput = document.getElementById('fileInput');
         const uploadArea = document.getElementById('uploadArea');
@@ -438,6 +431,13 @@
                     body: formData
                 });
 
+                // Verificar se a resposta é JSON
+                const contentType = response.headers.get('content-type');
+                if (!contentType || !contentType.includes('application/json')) {
+                    const text = await response.text();
+                    throw new Error(`Resposta inválida do servidor: ${text.substring(0, 100)}`);
+                }
+
                 const data = await response.json();
 
                 if (!response.ok) {
@@ -450,6 +450,7 @@
             } catch (error) {
                 showError(error.message);
                 convertBtn.disabled = false;
+                progressContainer.style.display = 'none';
             }
         });
 
@@ -457,13 +458,21 @@
             const progressInterval = setInterval(async () => {
                 try {
                     const response = await fetch(`/progress/${taskId}`);
+                    
+                    // Verificar se a resposta é JSON
+                    const contentType = response.headers.get('content-type');
+                    if (!contentType || !contentType.includes('application/json')) {
+                        const text = await response.text();
+                        throw new Error(`Resposta inválida do servidor: ${text.substring(0, 100)}`);
+                    }
+                    
                     const progressData = await response.json();
 
                     updateProgress(progressData);
 
                     if (progressData.status === 'completo') {
                         clearInterval(progressInterval);
-                        showDownload(progressData.filename);
+                        showDownload(taskId, progressData.filename);
                         convertBtn.disabled = false;
                         convertBtn.textContent = '🔄 Converter Outro Arquivo';
                     } else if (progressData.status === 'erro') {
@@ -473,6 +482,9 @@
                     }
                 } catch (error) {
                     console.error('Erro ao verificar progresso:', error);
+                    showError('Erro ao verificar progresso da conversão');
+                    clearInterval(progressInterval);
+                    convertBtn.disabled = false;
                 }
             }, 1000);
         }
@@ -484,8 +496,8 @@
             progressMessage.textContent = data.message || 'Processando...';
         }
 
-        function showDownload(filename) {
-            downloadLink.href = `/download/${filename}`;
+        function showDownload(taskId, filename) {
+            downloadLink.href = `/download/${taskId}`;
             downloadLink.download = filename;
             downloadSection.style.display = 'block';
         }
