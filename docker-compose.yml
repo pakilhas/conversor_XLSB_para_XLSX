@@ -5,7 +5,7 @@ services:
     build: .
     container_name: conversor-arquivos-web
     ports:
-      - "5000:9090"
+      - "9090:9090"
     volumes:
       - ./uploads:/app/uploads
       - ./logs:/app/logs
