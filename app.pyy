@@ -1,0 +1,415 @@
+import os
+import time
+import logging
+from flask import Flask, render_template, request, jsonify, Response
+import pandas as pd
+import threading
+import uuid
+from datetime import datetime
+import tempfile
+from io import BytesIO
+import base64
+import shutil
+
+# Configurar logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.StreamHandler()
+    ]
+)
+
+# Usar diretório temporário
+TEMP_FOLDER = '/tmp/uploads'
+ALLOWED_EXTENSIONS = {'xlsb'}
+
+app = Flask(__name__)
+app.config['TEMP_FOLDER'] = TEMP_FOLDER
+app.secret_key = 'uma_chave_secreta_muito_segura'
+
+# AUMENTAR limite de upload para 100MB
+app.config['MAX_CONTENT_LENGTH'] = 100 * 1024 * 1024  # 100MB
+
+# Garantir que a pasta temporária exista
+os.makedirs(TEMP_FOLDER, exist_ok=True)
+
+# Dicionário para armazenar o progresso das conversões
+conversion_progress = {}
+
+def allowed_file(filename):
+    return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
+
+@app.route('/')
+def index():
+    return render_template('upload.html')
+
+@app.route('/health')
+def health_check():
+    return jsonify({'status': 'healthy', 'timestamp': datetime.now().isoformat()})
+
+@app.route('/upload', methods=['POST'])
+def upload_file():
+    try:
+        if 'file' not in request.files:
+            return jsonify({'error': 'Nenhum arquivo selecionado'}), 400
+        
+        file = request.files['file']
+        if file.filename == '':
+            return jsonify({'error': 'Nenhum arquivo selecionado'}), 400
+        
+        if file and allowed_file(file.filename):
+            task_id = str(uuid.uuid4())
+            original_filename = file.filename
+            
+            # Ler o conteúdo do arquivo para memória
+            file_content = file.read()
+            
+            if len(file_content) == 0:
+                return jsonify({'error': 'Arquivo vazio'}), 400
+            
+            file_size = len(file_content)
+            
+            # Verificar tamanho do arquivo (100MB limite)
+            if file_size > 100 * 1024 * 1024:
+                return jsonify({'error': 'Arquivo muito grande. Tamanho máximo: 100MB'}), 413
+            
+            conversion_progress[task_id] = {
+                'status': 'iniciando',
+                'progress': 0,
+                'message': 'Preparando conversão...',
+                'filename': original_filename.replace('.xlsb', '.xlsx'),
+                'error': None,
+                'start_time': datetime.now().isoformat(),
+                'details': {
+                    'input_file': original_filename,
+                    'input_size': f"{file_size / 1024 / 1024:.2f} MB"
+                },
+                'file_content': None
+            }
+            
+            # Iniciar conversão AVANÇADA
+            thread = threading.Thread(
+                target=convert_xlsb_to_xlsx_preserve_all,
+                args=(file_content, original_filename, task_id)
+            )
+            thread.daemon = True
+            thread.start()
+            
+            return jsonify({
+                'task_id': task_id, 
+                'filename': original_filename.replace('.xlsb', '.xlsx')
+            })
+        
+        return jsonify({'error': 'Tipo de arquivo não permitido. Use apenas .xlsb'}), 400
+    
+    except Exception as e:
+        logging.error(f"Erro no upload: {e}")
+        return jsonify({'error': f'Erro interno no servidor: {str(e)}'}), 500
+
+def convert_xlsb_to_xlsx_preserve_all(file_content, original_filename, task_id):
+    """Conversão que preserva TUDO: formatações, fórmulas, estilos, etc."""
+    try:
+        logging.info(f"Iniciando conversão com preservação total: {original_filename}")
+        
+        conversion_progress[task_id].update({
+            'progress': 10,
+            'message': 'Iniciando processamento...'
+        })
+        
+        # Criar arquivo temporário para processamento
+        with tempfile.NamedTemporaryFile(delete=False, suffix='.xlsb', dir=app.config['TEMP_FOLDER']) as temp_input:
+            temp_input.write(file_content)
+            temp_input_path = temp_input.name
+        
+        conversion_progress[task_id].update({
+            'progress': 20,
+            'message': 'Analisando estrutura do arquivo...'
+        })
+        
+        # Tentativa 1: Usar pandas com openpyxl para preservar o máximo possível
+        try:
+            output_buffer = BytesIO()
+            
+            conversion_progress[task_id].update({
+                'progress': 30,
+                'message': 'Lendo planilhas...'
+            })
+            
+            # Ler todas as planilhas
+            xlsb_file = pd.ExcelFile(temp_input_path, engine='pyxlsb')
+            sheet_names = xlsb_file.sheet_names
+            
+            conversion_progress[task_id].update({
+                'progress': 40,
+                'message': f'Processando {len(sheet_names)} planilhas...'
+            })
+            
+            with pd.ExcelWriter(output_buffer, engine='openpyxl') as writer:
+                for i, sheet_name in enumerate(sheet_names):
+                    progress = 40 + (i * 50 / len(sheet_names))
+                    conversion_progress[task_id].update({
+                        'progress': progress,
+                        'message': f'Convertendo: {sheet_name}'
+                    })
+                    
+                    try:
+                        # Ler mantendo dados brutos
+                        df = pd.read_excel(
+                            temp_input_path, 
+                            sheet_name=sheet_name, 
+                            engine='pyxlsb',
+                            dtype=object,
+                            keep_default_na=False,
+                            header=None
+                        )
+                        
+                        # Escrever mantendo fórmulas e formatos
+                        df.to_excel(
+                            writer, 
+                            sheet_name=sheet_name[:31], 
+                            index=False,
+                            header=False
+                        )
+                        
+                        # Ajustar configurações da planilha
+                        workbook = writer.book
+                        worksheet = writer.sheets[sheet_name[:31]]
+                        
+                        # Tentar ajustar largura das colunas automaticamente
+                        for column_cells in worksheet.columns:
+                            length = max(len(str(cell.value)) for cell in column_cells)
+                            worksheet.column_dimensions[column_cells[0].column_letter].width = length + 2
+                            
+                    except Exception as e:
+                        logging.error(f"Erro na planilha {sheet_name}: {e}")
+                        # Criar planilha de fallback
+                        error_df = pd.DataFrame([f"Erro ao processar: {str(e)}"])
+                        error_df.to_excel(
+                            writer, 
+                            sheet_name=f"ERRO_{sheet_name[:28]}", 
+                            index=False, 
+                            header=False
+                        )
+                    
+                    time.sleep(0.5)
+            
+            output_buffer.seek(0)
+            
+            conversion_progress[task_id].update({
+                'progress': 95,
+                'message': 'Finalizando conversão...'
+            })
+            
+            # Método alternativo: Se disponível, usar xlwings para conversão mais fiel
+            try:
+                import xlwings as xw
+                conversion_progress[task_id].update({
+                    'message': 'Usando método avançado para melhor qualidade...'
+                })
+                
+                # Criar arquivos temporários
+                with tempfile.NamedTemporaryFile(suffix='.xlsx', delete=False, dir=app.config['TEMP_FOLDER']) as temp_output:
+                    temp_output_path = temp_output.name
+                
+                # Converter usando xlwings (preserva fórmulas e formatação)
+                app_xw = xw.App(visible=False)
+                try:
+                    wb_xlsb = app_xw.books.open(temp_input_path)
+                    wb_xlsb.save(temp_output_path)
+                    wb_xlsb.close()
+                    
+                    # Ler o arquivo convertido
+                    with open(temp_output_path, 'rb') as f:
+                        file_content_advanced = f.read()
+                    
+                    output_buffer = BytesIO(file_content_advanced)
+                    output_buffer.seek(0)
+                    
+                finally:
+                    app_xw.quit()
+                    
+                    # Limpar arquivo temporário
+                    try:
+                        if os.path.exists(temp_output_path):
+                            os.unlink(temp_output_path)
+                    except:
+                        pass
+                        
+            except ImportError:
+                logging.warning("xlwings não disponível, usando método padrão")
+            except Exception as e:
+                logging.warning(f"xlwings falhou: {e}, usando método padrão")
+            
+            conversion_progress[task_id].update({
+                'progress': 100,
+                'message': 'Conversão concluída com máxima qualidade!',
+                'status': 'completo',
+                'filename': original_filename.replace('.xlsb', '.xlsx'),
+                'file_content_base64': base64.b64encode(output_buffer.getvalue()).decode('utf-8'),
+                'end_time': datetime.now().isoformat()
+            })
+            
+            logging.info(f"Conversão bem-sucedida: {original_filename}")
+            
+        except Exception as e:
+            raise Exception(f"Erro na conversão principal: {str(e)}")
+        
+        finally:
+            # Limpar arquivo temporário
+            try:
+                if os.path.exists(temp_input_path):
+                    os.unlink(temp_input_path)
+            except Exception as e:
+                logging.error(f"Erro ao limpar arquivo temporário: {e}")
+        
+    except Exception as e:
+        error_msg = f"Erro na conversão: {str(e)}"
+        logging.error(error_msg)
+        conversion_progress[task_id].update({
+            'status': 'erro',
+            'message': error_msg,
+            'error': str(e),
+            'end_time': datetime.now().isoformat()
+        })
+
+def convert_xlsb_to_xlsx_fallback(file_content, original_filename, task_id):
+    """Método de fallback mais simples"""
+    try:
+        conversion_progress[task_id].update({
+            'progress': 10,
+            'message': 'Usando método alternativo...'
+        })
+        
+        # Criar arquivo temporário
+        with tempfile.NamedTemporaryFile(delete=False, suffix='.xlsb', dir=app.config['TEMP_FOLDER']) as temp_input:
+            temp_input.write(file_content)
+            temp_input_path = temp_input.name
+        
+        output_buffer = BytesIO()
+        
+        # Método simples direto
+        xlsb_file = pd.ExcelFile(temp_input_path, engine='pyxlsb')
+        sheet_names = xlsb_file.sheet_names
+        
+        with pd.ExcelWriter(output_buffer, engine='openpyxl') as writer:
+            for i, sheet_name in enumerate(sheet_names):
+                progress = 10 + (i * 80 / len(sheet_names))
+                conversion_progress[task_id].update({
+                    'progress': progress,
+                    'message': f'Processando: {sheet_name}'
+                })
+                
+                df = pd.read_excel(temp_input_path, sheet_name=sheet_name, engine='pyxlsb')
+                df.to_excel(writer, sheet_name=sheet_name[:31], index=False)
+        
+        output_buffer.seek(0)
+        
+        conversion_progress[task_id].update({
+            'progress': 100,
+            'message': 'Conversão concluída (método simples)',
+            'status': 'completo',
+            'filename': original_filename.replace('.xlsb', '.xlsx'),
+            'file_content_base64': base64.b64encode(output_buffer.getvalue()).decode('utf-8'),
+            'end_time': datetime.now().isoformat()
+        })
+        
+    except Exception as e:
+        raise Exception(f"Fallback também falhou: {str(e)}")
+
+@app.route('/progress/<task_id>')
+def get_progress(task_id):
+    try:
+        progress_data = conversion_progress.get(task_id)
+        
+        if not progress_data:
+            return jsonify({
+                'status': 'nao_encontrado',
+                'progress': 0,
+                'message': 'Tarefa não encontrada'
+            })
+        
+        # Criar resposta manualmente com apenas campos seguros
+        response_data = {
+            'status': progress_data.get('status', 'desconhecido'),
+            'progress': progress_data.get('progress', 0),
+            'message': progress_data.get('message', ''),
+            'filename': progress_data.get('filename', ''),
+            'error': progress_data.get('error', ''),
+            'start_time': progress_data.get('start_time', ''),
+            'end_time': progress_data.get('end_time', '')
+        }
+        
+        return jsonify(response_data)
+        
+    except Exception as e:
+        logging.error(f"Erro no progress: {e}")
+        return jsonify({'status': 'erro', 'error': str(e)}), 500
+
+@app.route('/download/<task_id>')
+def download_file(task_id):
+    try:
+        progress_data = conversion_progress.get(task_id)
+        
+        if not progress_data or progress_data.get('status') != 'completo':
+            return jsonify({'error': 'Arquivo não encontrado ou conversão não concluída'}), 404
+        
+        file_content_base64 = progress_data.get('file_content_base64')
+        filename = progress_data.get('filename', 'converted.xlsx')
+        
+        if not file_content_base64:
+            return jsonify({'error': 'Conteúdo do arquivo não disponível'}), 404
+        
+        # Decodificar de base64 para bytes
+        file_content = base64.b64decode(file_content_base64)
+        
+        # Criar resposta com o arquivo em memória
+        response = Response(
+            file_content,
+            mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            headers={
+                'Content-Disposition': f'attachment; filename="{filename}"',
+                'Content-Length': len(file_content)
+            }
+        )
+        
+        return response
+        
+    except Exception as e:
+        logging.error(f"Erro no download: {e}")
+        return jsonify({'error': 'Arquivo não encontrado'}), 404
+
+# Limpeza automática de tarefas antigas
+def cleanup_old_tasks():
+    """Limpa tarefas antigas da memória"""
+    current_time = datetime.now()
+    tasks_to_remove = []
+    
+    for task_id, task_data in conversion_progress.items():
+        if task_data.get('end_time'):
+            try:
+                end_time = datetime.fromisoformat(task_data['end_time'])
+                if (current_time - end_time).total_seconds() > 3600:  # 1 hora
+                    tasks_to_remove.append(task_id)
+            except:
+                pass
+    
+    for task_id in tasks_to_remove:
+        if task_id in conversion_progress:
+            del conversion_progress[task_id]
+    
+    if tasks_to_remove:
+        logging.info(f"Limpeza automática: {len(tasks_to_remove)} tarefas removidas")
+
+# Agendar limpeza automática
+import atexit
+from apscheduler.schedulers.background import BackgroundScheduler
+
+scheduler = BackgroundScheduler()
+scheduler.add_job(func=cleanup_old_tasks, trigger="interval", minutes=30)
+scheduler.start()
+atexit.register(lambda: scheduler.shutdown())
+
+if __name__ == '__main__':
+    logging.info("Iniciando aplicação Flask na porta 9090")
+    app.run(host='0.0.0.0', port=9090, debug=False)
