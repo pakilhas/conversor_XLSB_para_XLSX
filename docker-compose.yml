@@ -1,9 +1,9 @@
 version: '3.8'
 
 services:
-  xlsb-converter:
+  file-converter:
     build: .
-    container_name: conversor-xlsb-web
+    container_name: conversor-arquivos-web
     ports:
       - "5000:9090"
     volumes:
@@ -13,6 +13,7 @@ services:
     environment:
       - FLASK_ENV=production
       - PYTHONUNBUFFERED=1
+      - MAX_FILE_SIZE=100MB
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:9090/health"]
@@ -21,10 +22,10 @@ services:
       retries: 3
       start_period: 40s
     networks:
-      - xlsb-network
+      - converter-network
 
 networks:
-  xlsb-network:
+  converter-network:
     driver: bridge
 
 volumes:

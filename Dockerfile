@@ -1,27 +1,30 @@
-FROM python:3.9-slim-bullseye
+FROM python:3.9-slim
 
 WORKDIR /app
 
-# Instalar apenas dependências essenciais
+# Instalar dependências do sistema
 RUN apt-get update && apt-get install -y \
+    build-essential \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Copiar requirements primeiro para cache
+# Copiar requirements
 COPY requirements.txt .
 
 # Instalar dependências Python
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copiar o código da aplicação
+# Instalar poppler-utils para processamento de PDF (opcional)
+RUN apt-get update && apt-get install -y poppler-utils && rm -rf /var/lib/apt/lists/*
+
+# Copiar código da aplicação
 COPY . .
 
-# Expor a porta
+# Criar diretórios necessários
+RUN mkdir -p uploads logs templates
+
+# Expor porta
 EXPOSE 9090
 
-# Health check
-HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
-    CMD curl -f http://localhost:9090/health || exit 1
-
-# Comando para rodar a aplicação
+# Comando de inicialização
 CMD ["python", "app.py"]
